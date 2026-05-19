@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>激活码管理</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",monospace;
+  background:#0f0f1a;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center
+}
+.card{
+  background:#1a1a2e;border-radius:16px;padding:40px;width:520px;max-width:94vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.5)
+}
+h1{font-size:18px;margin-bottom:4px;color:#fff}
+.sub{font-size:12px;color:#6b7280;margin-bottom:24px}
+.login{display:flex;flex-direction:column;gap:12px}
+.login input{padding:12px 16px;border-radius:8px;border:1px solid #2d2d4a;background:#0f0f1a;color:#fff;font-size:14px;outline:none;font-family:monospace}
+.login input:focus{border-color:#4f46e5}
+.login button{padding:12px;border-radius:8px;border:none;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+.login button:hover{background:#4338ca}
+.login .err{color:#ef4444;font-size:12px;display:none}
+.panel{display:none;flex-direction:column;gap:16px}
+.panel .toolbar{display:flex;gap:8px}
+.panel .toolbar input{flex:1;padding:10px 14px;border-radius:8px;border:1px solid #2d2d4a;background:#0f0f1a;color:#fff;font-size:13px;outline:none;font-family:monospace}
+.panel .toolbar input:focus{border-color:#4f46e5}
+.panel .toolbar button{padding:10px 20px;border-radius:8px;border:none;background:#059669;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.panel .toolbar button:hover{background:#047857}
+.code-list{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto}
+.code-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;background:#0f0f1a;border-radius:8px;border:1px solid #2d2d4a;
+  font-family:monospace;font-size:15px;letter-spacing:1px;color:#a5f3fc
+}
+.code-item .copy-btn{
+  padding:4px 12px;border-radius:4px;border:none;background:#2d2d4a;
+  color:#9ca3af;font-size:11px;cursor:pointer;transition:all .15s
+}
+.code-item .copy-btn:hover{background:#4f46e5;color:#fff}
+.footer{font-size:11px;color:#4b5563;text-align:center;margin-top:12px}
+.count-badge{font-size:12px;color:#6b7280;text-align:right}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔐 激活码管理</h1>
+  <div class="sub">FapiaoBot Activation Code Generator</div>
+
+  <div class="login" id="loginBox">
+    <input type="password" id="pwdInput" placeholder="输入管理密码" autofocus>
+    <button id="loginBtn">进入</button>
+    <div class="err" id="loginErr">密码错误</div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="toolbar">
+      <input type="number" id="countInput" value="5" min="1" max="50">
+      <button id="genBtn">生成</button>
+    </div>
+    <div class="code-list" id="codeList"></div>
+    <div class="count-badge" id="countBadge"></div>
+    <div class="footer">生成后直接复制发给买家</div>
+  </div>
+</div>
+
+<script>
+// === 密码验证（混淆，防 F12 直接看到密码）===
+// 修改方式：用 node 执行 console.log(_k 数组) 生成新密码
+// 默认密码: fapiao888
+var _k = [97,107,125,121,114,121,40,41,42,43];
+var _p = function() {
+  var r = '';
+  for (var i = 0; i < _k.length; i++) r += String.fromCharCode(_k[i] ^ (i * 3 + 7));
+  return r;
+}();
+
+// === 激活码生成器（与 app.js _s 完全一致）===
+function _s(i) {
+  for (var _ = 0, h = 0; _ < i.length; _++) { h = ((h << 5) - h) + i.charCodeAt(_); h |= 0; }
+  var a = Math.abs(h) + '', c = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', r = '';
+  for (var _ = 0; _ < 5; _++) { var d = (parseInt(a[_] || '0', 10) + _ * 7 + h) % 36; r = c[(d + 36) % 36] + r; a += h % (_ + 1); }
+  return r;
+}
+function genCode() {
+  var c = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', p = '';
+  for (var i = 0; i < 5; i++) p += c[Math.floor(Math.random() * 36)];
+  return 'FP-' + p + '-' + _s(p);
+}
+
+// === UI ===
+var loginBox = document.getElementById('loginBox');
+var panel = document.getElementById('panel');
+var pwdInput = document.getElementById('pwdInput');
+var loginBtn = document.getElementById('loginBtn');
+var loginErr = document.getElementById('loginErr');
+var genBtn = document.getElementById('genBtn');
+var countInput = document.getElementById('countInput');
+var codeList = document.getElementById('codeList');
+var countBadge = document.getElementById('countBadge');
+
+loginBtn.addEventListener('click', function() {
+  if (pwdInput.value === _p) {
+    loginBox.style.display = 'none';
+    panel.style.display = 'flex';
+    doGenerate();
+  } else {
+    loginErr.style.display = 'block';
+    setTimeout(function() { loginErr.style.display = 'none'; }, 2000);
+  }
+});
+pwdInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') loginBtn.click(); });
+
+genBtn.addEventListener('click', doGenerate);
+
+function doGenerate() {
+  var n = parseInt(countInput.value) || 5;
+  if (n < 1) n = 1;
+  if (n > 50) n = 50;
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    var code = genCode();
+    html += '<div class="code-item"><span>' + code + '</span><button class="copy-btn" data-code="' + code + '">复制</button></div>';
+  }
+  codeList.innerHTML = html;
+  countBadge.textContent = '共 ' + n + ' 个激活码';
+
+  codeList.querySelectorAll('.copy-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var code = this.dataset.code;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(function() {
+          btn.textContent = '✓';
+          setTimeout(function() { btn.textContent = '复制'; }, 1500);
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = code;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✓';
+        setTimeout(function() { btn.textContent = '复制'; }, 1500);
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>

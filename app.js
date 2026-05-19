@@ -17,16 +17,18 @@ const FIELD_META = [
   { key: 'invoiceNo',    label: '发票号码',     width: '150px' },
   { key: 'invoiceCode',  label: '发票代码',     width: '140px' },
   { key: 'date',         label: '开票日期',     width: '130px' },
-  { key: 'buyerName',    label: '购买方名称',   width: '160px' },
-  { key: 'buyerTaxId',   label: '购买方税号',   width: '180px' },
-  { key: 'sellerName',   label: '销售方名称',   width: '160px' },
-  { key: 'sellerTaxId',  label: '销售方税号',   width: '180px' },
-  { key: 'amount',       label: '金额',         width: '120px' },
-  { key: 'tax',          label: '税额',         width: '120px' },
-  { key: 'total',        label: '价税合计',     width: '120px' },
+  { key: 'buyerName',    label: '购买方名称',   width: '140px' },
+  { key: 'buyerTaxId',   label: '购买方税号',   width: '160px' },
+  { key: 'sellerName',   label: '销售方名称',   width: '140px' },
+  { key: 'sellerTaxId',  label: '销售方税号',   width: '160px' },
+  { key: 'items',        label: '商品信息',     width: '220px' },
+  { key: 'amount',       label: '金额',         width: '110px' },
+  { key: 'tax',          label: '税额',         width: '110px' },
+  { key: 'total',        label: '价税合计',     width: '110px' },
 ];
 
 const NUMERIC_FIELDS = new Set(['amount', 'tax', 'total']);
+const WRAP_FIELDS = new Set(['items']);
 
 // === 激活码验证系统（函数名/逻辑已混淆，防 F12 篡改）===
 function _s(i) {
@@ -288,27 +290,30 @@ function extractFields(parseResult) {
 function extractPositionBased(lines) {
   const fields = {};
   let nameSeen = 0, taxSeen = 0;
+  var inTable = false;
+  var itemRows = [];
 
-  for (const line of lines) {
-    const items = line.items;
-    const lineStr = line.text;
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    var items = line.items;
+    var lineStr = line.text;
 
     if (lineStr.includes('发票号码：') || lineStr.includes('发票号码:')) {
-      const m = lineStr.match(/(\d{8,20})/);
+      var m = lineStr.match(/(\d{8,20})/);
       if (m) fields.invoiceNo = m[1];
     }
     if (lineStr.includes('发票代码：') || lineStr.includes('发票代码:')) {
-      const m = lineStr.match(/(\d{10,12})/);
+      var m = lineStr.match(/(\d{10,12})/);
       if (m) fields.invoiceCode = m[1];
     }
     if (lineStr.includes('开票日期：') || lineStr.includes('开票日期:')) {
-      const m = lineStr.match(/(\d{4}[年\-\.\/]\d{1,2}[月\-\.\/]\d{1,2}[日]?)/);
+      var m = lineStr.match(/(\d{4}[年\-\.\/]\d{1,2}[月\-\.\/]\d{1,2}[日]?)/);
       if (m) fields.date = m[1];
     }
 
-    for (let i = 0; i < items.length - 1; i++) {
-      const cur = items[i].text;
-      const nxt = items[i + 1].text;
+    for (var i = 0; i < items.length - 1; i++) {
+      var cur = items[i].text;
+      var nxt = items[i + 1].text;
       if (!nxt.trim()) continue;
 
       if (/^名称[：:]/.test(cur) || cur === '名称：' || cur === '名称:') {
@@ -318,16 +323,61 @@ function extractPositionBased(lines) {
       }
       if (/纳税人识别号/.test(cur) || /统一社会信用代码/.test(cur)) {
         taxSeen++;
-        const m = nxt.match(/[A-Za-z0-9]{15,20}/);
-        if (m) {
-          if (taxSeen === 1) fields.buyerTaxId = m[0];
-          else if (taxSeen === 2 && !fields.sellerTaxId) fields.sellerTaxId = m[0];
+        var m2 = nxt.match(/[A-Za-z0-9]{15,20}/);
+        if (m2) {
+          if (taxSeen === 1) fields.buyerTaxId = m2[0];
+          else if (taxSeen === 2 && !fields.sellerTaxId) fields.sellerTaxId = m2[0];
+        }
+      }
+    }
+
+    // 检测表格区域
+    if (/项目名称/.test(lineStr) || /规格型号/.test(lineStr)) {
+      inTable = true;
+      continue;
+    }
+    if (inTable && /合\s*计/.test(lineStr) && !/小\s*计/.test(lineStr)) {
+      inTable = false;
+      var amounts = lineStr.match(/¥?\s*([\d,]+\.\d{2})/g);
+      if (amounts && amounts.length >= 2) {
+        fields.amount = amounts[0].replace(/,/g, '').trim();
+        fields.tax = amounts[1].replace(/,/g, '').trim();
+      }
+      continue;
+    }
+    if (inTable && /小\s*计/.test(lineStr)) {
+      inTable = false;
+      continue;
+    }
+
+    // 提取表格内的商品行（基于 X 坐标定位列）
+    if (inTable) {
+      // 判断是否为商品数据行：至少 4 个 item，且包含数字类数据
+      var numCount = 0;
+      for (var _i = 0; _i < items.length; _i++) { if (/[\d]/.test(items[_i].text)) numCount++; }
+      if (numCount >= 3) {
+        var nameParts = [], qty = '';
+        for (var _i = 0; _i < items.length; _i++) {
+          var _it = items[_i];
+          var _x = _it.x, _t = _it.text;
+          // 商品名称：X < 200 且不是纯数字/标点
+          if (_x < 200 && !/^[\d,.%¥\+\-]+$/.test(_t)) {
+            nameParts.push(_t);
+          }
+          // 数量：X 在 250-350 之间且为纯数字（1-999）
+          if (_x >= 250 && _x <= 350 && /^\d{1,3}$/.test(_t)) {
+            qty = _t;
+          }
+        }
+        var name = nameParts.join('').replace(/\*+/g, ' ').trim();
+        if (name && qty && name.length > 1) {
+          itemRows.push(name + '×' + qty);
         }
       }
     }
 
     if (/合\s*计/.test(lineStr) && !/小\s*计/.test(lineStr)) {
-      const amounts = [...lineStr.matchAll(/¥?\s*([\d,]+\.\d{2})/g)];
+      var amounts = [...lineStr.matchAll(/¥?\s*([\d,]+\.\d{2})/g)];
       if (amounts.length >= 2) {
         fields.amount = amounts[0][1].replace(/,/g, '');
         fields.tax = amounts[1][1].replace(/,/g, '');
@@ -335,11 +385,28 @@ function extractPositionBased(lines) {
     }
 
     if (/价税合计/.test(lineStr) || (lineStr.includes('小写') && lineStr.includes('¥'))) {
-      const amounts = [...lineStr.matchAll(/¥?\s*([\d,]+\.\d{2})/g)];
+      var amounts = [...lineStr.matchAll(/¥?\s*([\d,]+\.\d{2})/g)];
       if (amounts.length >= 1 && !fields.total) {
         fields.total = amounts[amounts.length - 1][1].replace(/,/g, '');
       }
     }
+  }
+
+  // 合并相同商品
+  if (itemRows.length > 0) {
+    var merged = {};
+    for (var r = 0; r < itemRows.length; r++) {
+      var parts = itemRows[r].split('×');
+      var n = parts[0];
+      var q = parseInt(parts[1]) || 1;
+      if (merged[n]) merged[n] += q;
+      else merged[n] = q;
+    }
+    var summary = [];
+    for (var n in merged) {
+      summary.push(n + '×' + merged[n]);
+    }
+    fields.items = summary.join('；');
   }
 
   return fields;
@@ -412,7 +479,8 @@ function renderTable() {
     FIELD_META.forEach(m => {
       const val = inv[m.key] || '';
       const isNum = NUMERIC_FIELDS.has(m.key);
-      html += `<td contenteditable="true" data-field="${m.key}" class="${isNum ? 'num-cell' : ''} ${!val ? 'empty-cell' : ''}" data-index="${idx}">${val}</td>`;
+    const wrap = m.key === 'items';
+      html += `<td contenteditable="true" data-field="${m.key}" class="${isNum ? 'num-cell' : ''} ${wrap ? 'wrap-cell' : ''} ${!val ? 'empty-cell' : ''}" data-index="${idx}">${val}</td>`;
     });
     html += `<td><button class="btn-icon delete-row" data-index="${idx}" title="删除">✕</button></td></tr>`;
   });

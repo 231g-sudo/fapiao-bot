@@ -101,6 +101,7 @@ tr.has-missing td{background:#fffbf5}
   padding:4px 8px;border-radius:4px;transition:all .15s;font-size:14px
 }
 .btn-icon:hover{background:#fee2e2;color:#ef4444}
+.wrap-cell{white-space:normal;word-break:break-all;max-width:220px;min-width:120px;line-height:1.4}
 #totalRow{background:#f8fafc;font-weight:600;border-top:2px solid #e5e7eb}
 #totalRow td{padding:10px 8px;font-size:13px}
 #totalRow .total-label{text-align:center;color:#6b7280}
@@ -170,8 +171,7 @@ tr.has-missing td{background:#fffbf5}
       <tfoot id="totalRow" style="display:none">
         <tr>
           <td></td>
-          <td class="total-label" colspan="3" style="text-align:center;color:#6b7280">合计</td>
-          <td></td><td></td><td></td><td></td>
+          <td class="total-label" colspan="8" style="text-align:center;color:#6b7280">合计</td>
           <td class="total-num" data-total="amount"></td>
           <td class="total-num" data-total="tax"></td>
           <td class="total-num" data-total="total"></td>

@@ -28,6 +28,39 @@ const FIELD_META = [
 
 const NUMERIC_FIELDS = new Set(['amount', 'tax', 'total']);
 
+// === 激活码验证系统（函数名/逻辑已混淆，防 F12 篡改）===
+function _s(i) {
+  for (var _ = 0, h = 0; _ < i.length; _++) { h = ((h << 5) - h) + i.charCodeAt(_); h |= 0; }
+  var a = Math.abs(h) + '', c = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', r = '';
+  for (var _ = 0; _ < 5; _++) { var d = (parseInt(a[_] || '0', 10) + _ * 7 + h) % 36; r = c[(d + 36) % 36] + r; a += h % (_ + 1); }
+  return r;
+}
+function _v(c) {
+  if (typeof c != 'string' || !/^FP-[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(c)) return false;
+  var p = c.split('-');
+  return p[2] === _s(p[1]);
+}
+function _checkActivation() {
+  try {
+    var fp = localStorage.getItem('_fp_act') || '';
+    var st = localStorage.getItem('_fp_st') || '';
+    if (fp && st && st === _s(fp)) return true;
+  } catch(e) {}
+  try {
+    var q = new URLSearchParams(window.location.search);
+    var c = q.get('c');
+    if (c && _v(c)) {
+      var fp = '';
+      try { fp = localStorage.getItem('fapiao_bot_usage_fp') || ''; } catch(e) {}
+      if (!fp) { fp = '_fp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+      localStorage.setItem('_fp_act', fp);
+      localStorage.setItem('_fp_st', _s(fp));
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
 const state = { invoices: [], fingerprint: null, isPro: false };
 
 const $ = (sel) => document.querySelector(sel);
@@ -54,7 +87,7 @@ function cacheElements() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  state.isPro = window.PRO_MODE === true;
+  state.isPro = window.PRO_MODE === true || _checkActivation();
   cacheElements();
   setupEventListeners();
   buildTableHeader();
@@ -75,6 +108,15 @@ function setupEventListeners() {
   els.closeModal?.addEventListener('click', () => els.upgradeModal?.classList.remove('show'));
   els.goUpgrade?.addEventListener('click', () => window.open(CONFIG.XIANYU_URL, '_blank'));
   els.upgradeModal?.addEventListener('click', (e) => { if (e.target === els.upgradeModal) els.upgradeModal.classList.remove('show'); });
+  els.activateBtn = $('#activateBtn');
+  els.activationInput = $('#activationInput');
+  els.activationMsg = $('#activationMsg');
+  els.activateBtn?.addEventListener('click', handleActivation);
+  els.activationInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleActivation(); });
+  els.activationInput?.addEventListener('input', () => {
+    els.activationMsg.style.display = 'none';
+    els.activationInput.value = els.activationInput.value.toUpperCase();
+  });
 }
 
 // ============================================================
@@ -479,3 +521,31 @@ function showLoading(show) { els.loadingOverlay.classList.toggle('show', show); 
 function updateLoadingText(text) { els.loadingText.textContent = text; }
 function clearAll() { if (state.invoices.length === 0) return; if (!confirm('确认清空所有数据？')) return; state.invoices = []; renderTable(); updateTotals(); }
 function showUpgradeModal() { els.upgradeModal?.classList.add('show'); }
+
+function handleActivation() {
+  var inp = els.activationInput;
+  var msg = els.activationMsg;
+  if (!inp || !msg) return;
+  var code = inp.value.trim().toUpperCase();
+  if (!code) { msg.textContent = '请输入激活码'; msg.style.color = '#dc2626'; msg.style.display = 'block'; return; }
+  if (_v(code)) {
+    try {
+      var fp = localStorage.getItem('fapiao_bot_usage_fp') || '';
+      if (!fp) { fp = '_fp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+      localStorage.setItem('_fp_act', fp);
+      localStorage.setItem('_fp_st', _s(fp));
+    } catch(e) {}
+    state.isPro = true;
+    document.body.classList.add('is-pro');
+    updateUsageDisplay();
+    msg.textContent = '✅ 激活成功！已解锁全部功能';
+    msg.style.color = '#16a34a';
+    msg.style.display = 'block';
+    inp.value = '';
+    setTimeout(function() { els.upgradeModal?.classList.remove('show'); }, 1200);
+  } else {
+    msg.textContent = '❌ 激活码无效，请检查后重试';
+    msg.style.color = '#dc2626';
+    msg.style.display = 'block';
+  }
+}

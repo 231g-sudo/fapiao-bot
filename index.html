@@ -186,6 +186,12 @@ tr.has-missing td:first-child::before{
   margin-top:12px;background:none;border:none;
   color:#9ca3af;font-size:13px;cursor:pointer
 }
+.modal-divider{display:flex;align-items:center;margin:16px 0;color:#d1d5db;font-size:12px}
+.modal-divider::before,.modal-divider::after{content:"";flex:1;height:1px;background:#e5e7eb}
+.modal-divider span{padding:0 12px}
+.modal-section{margin-bottom:4px}
+#activationInput:focus{border-color:#4f46e5!important;box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+#activationInput::placeholder{color:#d1d5db;letter-spacing:0;font-family:inherit}
 
 /* ===== Footer ===== */
 .footer{text-align:center;padding:24px 0;font-size:12px;color:#9ca3af}
@@ -278,14 +284,28 @@ tr.has-missing td:first-child::before{
 <div class="modal-overlay" id="upgradeModal">
   <div class="modal">
     <div class="icon">🔒</div>
-    <h2>免费额度已用尽</h2>
-    <p>
-      免费版可提取 <strong>3 张</strong> 发票。<br>
-      购买完整版可 <strong>无限使用</strong>，仅需 <strong>19.9 元</strong>。<br>
-      一次购买，长期使用，无后续费用。
-    </p>
-    <button class="btn-upgrade-now" id="goUpgrade">⬆ 前往闲鱼购买完整版</button>
-    <button class="btn-close" id="closeModal">稍后再说</button>
+    <h2>解锁完整版</h2>
+
+    <div class="modal-section">
+      <p style="margin-bottom:14px;color:#6b7280;font-size:14px;line-height:1.6">
+        免费版可提取 <strong>3 张</strong> 发票。<br>
+        购买完整版可 <strong>无限使用</strong>，仅需 <strong>19.9 元</strong>。
+      </p>
+      <button class="btn-upgrade-now" id="goUpgrade">⬆ 前往闲鱼购买</button>
+    </div>
+
+    <div class="modal-divider"><span>或</span></div>
+
+    <div class="modal-section">
+      <p style="font-size:13px;color:#6b7280;margin-bottom:8px">已购买？输入激活码</p>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="activationInput" placeholder="FP-XXXXX-XXXXX" style="flex:1;padding:10px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;text-align:center;letter-spacing:1px;font-family:monospace;outline:none" maxlength="17">
+        <button id="activateBtn" style="padding:10px 18px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">激活</button>
+      </div>
+      <p id="activationMsg" style="font-size:12px;margin-top:6px;display:none"></p>
+    </div>
+
+    <button class="btn-close" id="closeModal" style="margin-top:16px">关闭</button>
   </div>
 </div>
 

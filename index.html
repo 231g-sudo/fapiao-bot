@@ -132,6 +132,15 @@ tr.has-missing td:first-child::before{
   padding:4px 8px;border-radius:4px;transition:all .15s;font-size:14px
 }
 .btn-icon:hover{background:#fee2e2;color:#ef4444}
+.btn-ghost{
+  background:transparent;color:#6b7280;border:1px solid #d1d5db;font-size:13px;
+  padding:8px 14px;border-radius:8px;cursor:pointer;transition:all .15s
+}
+.btn-ghost:hover:not(:disabled){background:#f3f4f6;color:#374151}
+
+/* ===== 扩展行 ===== */
+.item-subrow td{background:#fafafa;padding-top:4px;padding-bottom:4px}
+.item-subrow .row-num{font-size:11px;color:#d1d5db}
 
 /* ===== 合计行 ===== */
 #totalRow{background:#f8fafc;font-weight:600;border-top:2px solid #e5e7eb}
@@ -262,6 +271,7 @@ tr.has-missing td:first-child::before{
     <div class="left">
       <button class="btn btn-primary" id="exportBtn" disabled>📥 导出 Excel</button>
       <button class="btn btn-secondary" id="clearBtn" disabled>🗑 清空</button>
+      <button class="btn btn-ghost" id="expandBtn" disabled>📄 逐行展开商品</button>
     </div>
     <div class="right">支持批量上传 · 双击单元格可编辑</div>
   </div>

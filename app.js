@@ -63,7 +63,7 @@ function _checkActivation() {
   return false;
 }
 
-const state = { invoices: [], fingerprint: null, isPro: false };
+const state = { invoices: [], fingerprint: null, isPro: false, expandItems: false };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -80,6 +80,7 @@ function cacheElements() {
   els.status        = $('#status');
   els.totalRow      = $('#totalRow');
   els.usageCount    = $('#usageCount');
+  els.expandBtn     = $('#expandBtn');
   els.upgradeBtn    = $('#upgradeBtn');
   els.upgradeModal  = $('#upgradeModal');
   els.closeModal    = $('#closeModal');
@@ -106,6 +107,7 @@ function setupEventListeners() {
   els.fileInput.addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
   els.exportBtn.addEventListener('click', exportExcel);
   els.clearBtn.addEventListener('click', clearAll);
+  els.expandBtn?.addEventListener('click', toggleExpandItems);
   els.upgradeBtn?.addEventListener('click', () => els.upgradeModal?.classList.add('show'));
   els.closeModal?.addEventListener('click', () => els.upgradeModal?.classList.remove('show'));
   els.goUpgrade?.addEventListener('click', () => window.open(CONFIG.XIANYU_URL, '_blank'));
@@ -392,8 +394,9 @@ function extractPositionBased(lines) {
     }
   }
 
-  // 合并相同商品
+  // 合并相同商品，同时保留原始行
   if (itemRows.length > 0) {
+    fields._itemRows = itemRows.slice();
     var merged = {};
     for (var r = 0; r < itemRows.length; r++) {
       var parts = itemRows[r].split('×');
@@ -457,32 +460,59 @@ function buildTableHeader() {
   els.tableHead.innerHTML = html;
 }
 
+function toggleExpandItems() {
+  state.expandItems = !state.expandItems;
+  els.expandBtn.textContent = state.expandItems ? '📄 合并显示商品' : '📄 逐行展开商品';
+  renderTable();
+}
+
 function renderTable() {
   if (state.invoices.length === 0) {
     els.tableWrapper.classList.add('empty');
     els.tableBody.innerHTML = '';
     els.exportBtn.disabled = true;
     els.clearBtn.disabled = true;
+    if (els.expandBtn) els.expandBtn.disabled = true;
     els.totalRow.style.display = 'none';
     return;
   }
   els.tableWrapper.classList.remove('empty');
   els.exportBtn.disabled = false;
   els.clearBtn.disabled = false;
+  if (els.expandBtn) els.expandBtn.disabled = false;
   els.totalRow.style.display = '';
 
   let html = '';
   state.invoices.forEach((inv, idx) => {
     const hasMissing = inv.missingCount > 0;
-    html += `<tr data-index="${idx}" class="${hasMissing ? 'has-missing' : ''}">`;
-    html += `<td class="row-num">${idx + 1}</td>`;
-    FIELD_META.forEach(m => {
-      const val = inv[m.key] || '';
-      const isNum = NUMERIC_FIELDS.has(m.key);
-    const wrap = m.key === 'items';
-      html += `<td contenteditable="true" data-field="${m.key}" class="${isNum ? 'num-cell' : ''} ${wrap ? 'wrap-cell' : ''} ${!val ? 'empty-cell' : ''}" data-index="${idx}">${val}</td>`;
-    });
-    html += `<td><button class="btn-icon delete-row" data-index="${idx}" title="删除">✕</button></td></tr>`;
+    const itemRows = (state.expandItems && inv._itemRows && inv._itemRows.length > 0) ? inv._itemRows :
+      (state.expandItems && inv.items && inv.items.includes('；')) ? inv.items.split('；') : null;
+    if (itemRows) {
+      itemRows.forEach((ir, ri) => {
+        html += `<tr data-index="${idx}" class="${hasMissing ? 'has-missing' : ''} ${ri > 0 ? 'item-subrow' : ''}">`;
+        html += `<td class="row-num">${idx + 1}-${ri + 1}</td>`;
+        FIELD_META.forEach(m => {
+          if (m.key === 'items') {
+            html += `<td data-field="items" class="wrap-cell" data-index="${idx}">${ir}</td>`;
+          } else {
+            const val = inv[m.key] || '';
+            const isNum = NUMERIC_FIELDS.has(m.key);
+            html += `<td contenteditable="true" data-field="${m.key}" class="${isNum ? 'num-cell' : ''} ${!val ? 'empty-cell' : ''}" data-index="${idx}">${val}</td>`;
+          }
+        });
+        html += `<td>${ri === 0 ? '<button class="btn-icon delete-row" data-index="'+idx+'" title="删除">✕</button>' : ''}</td></tr>`;
+      });
+    } else {
+      html += `<tr data-index="${idx}" class="${hasMissing ? 'has-missing' : ''}">`;
+      html += `<td class="row-num">${idx + 1}</td>`;
+      FIELD_META.forEach(m => {
+        const val = inv[m.key] || '';
+        const isNum = NUMERIC_FIELDS.has(m.key);
+        const wrap = m.key === 'items';
+        html += `<td contenteditable="true" data-field="${m.key}" class="${isNum ? 'num-cell' : ''} ${wrap ? 'wrap-cell' : ''} ${!val ? 'empty-cell' : ''}" data-index="${idx}">${val}</td>`;
+      });
+      html += `<td><button class="btn-icon delete-row" data-index="${idx}" title="删除">✕</button></td></tr>`;
+    }
   });
   els.tableBody.innerHTML = html;
 
@@ -506,6 +536,7 @@ function onCellEdit(e) {
   const field = td.dataset.field;
   const val = td.textContent.trim();
   state.invoices[idx][field] = val;
+  if (field === 'items') delete state.invoices[idx]._itemRows;
   if (!val) td.classList.add('empty-cell');
   else td.classList.remove('empty-cell');
   updateTotals();
@@ -528,13 +559,29 @@ function updateTotals() {
 function exportExcel() {
   if (state.invoices.length === 0) { showStatus('没有数据可导出', 'warn'); return; }
   const headers = FIELD_META.map(m => m.label);
-  const data = state.invoices.map(inv => FIELD_META.map(m => {
-    const val = inv[m.key] || '';
-    if (NUMERIC_FIELDS.has(m.key) && val) { const n = parseFloat(val); return isNaN(n) ? val : n; }
-    return val;
-  }));
+  const data = [];
   const sums = { amount: 0, tax: 0, total: 0 };
-  state.invoices.forEach(inv => { NUMERIC_FIELDS.forEach(f => { const v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] += v; }); });
+  state.invoices.forEach(inv => {
+    const itemRows = (inv._itemRows && inv._itemRows.length > 0) ? inv._itemRows :
+      (inv.items && inv.items.includes('；')) ? inv.items.split('；') : null;
+    if (itemRows) {
+      itemRows.forEach(ir => {
+        data.push(FIELD_META.map(m => {
+          if (m.key === 'items') return ir;
+          const val = inv[m.key] || '';
+          if (NUMERIC_FIELDS.has(m.key) && val) { const n = parseFloat(val); return isNaN(n) ? val : n; }
+          return val;
+        }));
+      });
+    } else {
+      data.push(FIELD_META.map(m => {
+        const val = inv[m.key] || '';
+        if (NUMERIC_FIELDS.has(m.key) && val) { const n = parseFloat(val); return isNaN(n) ? val : n; }
+        return val;
+      }));
+    }
+    NUMERIC_FIELDS.forEach(f => { const v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] += v; });
+  });
   const totalRow = FIELD_META.map(m => {
     if (m.key === 'invoiceNo') return '合计';
     if (NUMERIC_FIELDS.has(m.key)) { const v = sums[m.key]; return v ? Math.round(v * 100) / 100 : 0; }

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票提取工具 · PDF/OFD 转 Excel</title>
+<meta name="description" content="上传电子发票 PDF/OFD，自动提取字段，导出 Excel 报销表。纯浏览器本地处理，不上传任何数据。">
+
+<!-- pdf.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- SheetJS -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<!-- JSZip (OFD解析) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- FingerprintJS -->
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3.4.2/dist/fp.min.js"></script>
+
+<style>
+/* ===== Reset & Base ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:#f0f2f5;color:#1a1a2e;min-height:100vh;line-height:1.5
+}
+a{color:#4f46e5;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ===== Layout ===== */
+.container{max-width:1200px;margin:0 auto;padding:20px}
+.header{
+  text-align:center;padding:32px 0 24px;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  margin:-20px -20px 24px;padding:40px 20px 28px;
+  color:#fff
+}
+.header h1{font-size:24px;font-weight:700;margin-bottom:4px}
+.header p{font-size:14px;opacity:.85}
+.header .badge{
+  display:inline-block;margin-top:8px;padding:2px 12px;
+  border-radius:12px;font-size:12px;background:rgba(255,255,255,.2)
+}
+.pro-badge{background:#fbbf24!important;color:#1a1a2e!important}
+.exhausted{color:#fca5a5!important}
+
+/* ===== 使用情况 ===== */
+.usage-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#fff;border-radius:10px;padding:12px 20px;
+  margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)
+}
+.usage-bar .left{display:flex;align-items:center;gap:8px}
+.usage-bar .count{font-weight:600;color:#4f46e5}
+.btn-upgrade{
+  background:#fbbf24;border:none;padding:6px 18px;
+  border-radius:6px;font-size:13px;font-weight:600;
+  color:#1a1a2e;cursor:pointer;transition:background .15s
+}
+.btn-upgrade:hover{background:#f59e0b}
+.is-pro .btn-upgrade{display:none!important}
+
+/* ===== 上传区 ===== */
+.upload-zone{
+  background:#fff;border:2px dashed #d1d5db;border-radius:12px;
+  padding:48px 20px;text-align:center;cursor:pointer;
+  transition:all .2s;margin-bottom:20px
+}
+.upload-zone:hover,.upload-zone.dragover{
+  border-color:#4f46e5;background:#eef2ff
+}
+.upload-zone .icon{font-size:40px;margin-bottom:8px;display:block}
+.upload-zone .hint{color:#6b7280;font-size:13px;margin-top:4px}
+.upload-zone .hint strong{color:#4f46e5}
+.upload-zone input[type=file]{display:none}
+
+/* ===== 表格 ===== */
+.table-wrapper{
+  background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);
+  overflow-x:auto;margin-bottom:16px
+}
+.table-wrapper.empty .empty-msg{display:block}
+.table-wrapper:not(.empty) .empty-msg{display:none}
+.empty-msg{
+  text-align:center;padding:40px 20px;color:#9ca3af;font-size:15px
+}
+#invoiceTable{width:100%;border-collapse:collapse;white-space:nowrap}
+#invoiceTable th{
+  background:#f8fafc;padding:10px 8px;font-size:12px;font-weight:600;
+  color:#6b7280;text-align:left;border-bottom:2px solid #e5e7eb;
+  position:sticky;top:0;z-index:1
+}
+#invoiceTable td{
+  padding:8px;font-size:13px;border-bottom:1px solid #f3f4f6;
+  vertical-align:middle;min-height:36px
+}
+#invoiceTable td[contenteditable]{
+  cursor:text;outline:none;border-radius:4px;transition:background .15s
+}
+#invoiceTable td[contenteditable]:hover{background:#f9fafb}
+#invoiceTable td[contenteditable]:focus{background:#eef2ff;box-shadow:inset 0 0 0 2px #4f46e5}
+#invoiceTable td.empty-cell{color:#d1d5db;font-style:italic}
+#invoiceTable td.num-cell{text-align:right;font-variant-numeric:tabular-nums}
+#invoiceTable .row-num{text-align:center;color:#9ca3af;font-size:12px;width:32px}
+tr.has-missing td{background:#fffbf5}
+tr.has-missing td:first-child{position:relative}
+tr.has-missing td:first-child::before{
+  content:"⚠";position:absolute;left:4px;top:50%;transform:translateY(-50%);font-size:12px
+}
+
+/* ===== 操作栏 ===== */
+.actions{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-bottom:40px
+}
+.actions .left{display:flex;gap:8px;align-items:center}
+.actions .right{font-size:12px;color:#9ca3af}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 20px;border-radius:8px;font-size:14px;font-weight:600;
+  border:none;cursor:pointer;transition:all .15s
+}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:#4f46e5;color:#fff}
+.btn-primary:hover:not(:disabled){background:#4338ca}
+.btn-secondary{background:#e5e7eb;color:#374151}
+.btn-secondary:hover:not(:disabled){background:#d1d5db}
+.btn-danger{background:#fee2e2;color:#dc2626}
+.btn-danger:hover:not(:disabled){background:#fecaca}
+.btn-icon{
+  background:none;border:none;cursor:pointer;color:#9ca3af;
+  padding:4px 8px;border-radius:4px;transition:all .15s;font-size:14px
+}
+.btn-icon:hover{background:#fee2e2;color:#ef4444}
+
+/* ===== 合计行 ===== */
+#totalRow{background:#f8fafc;font-weight:600;border-top:2px solid #e5e7eb}
+#totalRow td{padding:10px 8px;font-size:13px}
+#totalRow .total-label{text-align:center;color:#6b7280}
+#totalRow .total-num{text-align:right;color:#4f46e5;font-variant-numeric:tabular-nums}
+
+/* ===== 状态提示 ===== */
+.status{
+  position:fixed;top:20px;right:20px;z-index:1000;
+  padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;
+  box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;max-width:400px;
+  animation:slideIn .2s ease-out
+}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.status.info{background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe}
+.status.success{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}
+.status.error{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.status.warn{background:#fffbeb;color:#d97706;border:1px solid #fde68a}
+
+/* ===== Loading 遮罩 ===== */
+.loading-overlay{
+  display:none;position:fixed;inset:0;z-index:999;
+  background:rgba(255,255,255,.85);align-items:center;justify-content:center;
+  flex-direction:column;gap:16px
+}
+.loading-overlay.show{display:flex}
+.spinner{width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#4f46e5;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:14px;color:#6b7280}
+
+/* ===== Modal ===== */
+.modal-overlay{
+  display:none;position:fixed;inset:0;z-index:2000;
+  background:rgba(0,0,0,.4);align-items:center;justify-content:center
+}
+.modal-overlay.show{display:flex}
+.modal{
+  background:#fff;border-radius:16px;padding:32px;max-width:420px;width:90%;
+  text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:modalIn .25s ease-out
+}
+@keyframes modalIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
+.modal .icon{font-size:48px;margin-bottom:12px}
+.modal h2{font-size:20px;margin-bottom:8px}
+.modal p{color:#6b7280;font-size:14px;margin-bottom:20px;line-height:1.6}
+.modal .btn-upgrade-now{
+  display:block;width:100%;padding:12px;
+  background:#fbbf24;border:none;border-radius:10px;
+  font-size:16px;font-weight:700;cursor:pointer;color:#1a1a2e
+}
+.modal .btn-upgrade-now:hover{background:#f59e0b}
+.modal .btn-close{
+  margin-top:12px;background:none;border:none;
+  color:#9ca3af;font-size:13px;cursor:pointer
+}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:24px 0;font-size:12px;color:#9ca3af}
+.footer .secure{display:inline-flex;align-items:center;gap:4px;margin-bottom:4px}
+
+/* ===== Responsive ===== */
+@media(max-width:768px){
+  .container{padding:12px}
+  .header{margin:-12px -12px 16px;padding:28px 12px 20px}
+  .header h1{font-size:20px}
+  .upload-zone{padding:32px 12px}
+  .actions{flex-direction:column;align-items:stretch}
+  .actions .left{justify-content:center}
+  .status{left:12px;right:12px;top:12px;max-width:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>📄 发票提取工具</h1>
+  <p>上传电子发票 PDF/OFD → 自动提取字段 → 导出 Excel 报销表</p>
+  <div class="badge">🔒 不上传服务器 · 纯本地处理</div>
+</div>
+
+<div class="container">
+
+  <!-- Usage Bar -->
+  <div class="usage-bar">
+    <div class="left">
+      <span>📊</span>
+      <span class="count" id="usageCount">加载中...</span>
+    </div>
+    <button class="btn-upgrade" id="upgradeBtn">⬆ 升级完整版</button>
+  </div>
+
+  <!-- Upload Zone -->
+  <div class="upload-zone" id="uploadZone">
+    <span class="icon">📁</span>
+    <div><strong>点击选择</strong> 或拖拽文件到这里</div>
+    <div class="hint">支持 <strong>PDF</strong> · <strong>OFD</strong> 格式，可多选，单文件不超过 10MB</div>
+    <input type="file" id="fileInput" multiple accept=".pdf,.ofd">
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrapper empty" id="tableWrapper">
+    <div class="empty-msg">📋 上传发票后，提取结果将显示在这里</div>
+    <table id="invoiceTable">
+      <thead><tr></tr></thead>
+      <tbody></tbody>
+      <tfoot id="totalRow" style="display:none">
+        <tr>
+          <td></td>
+          <td class="total-label" colspan="3" style="text-align:center;color:#6b7280">合计</td>
+          <td></td><td></td><td></td><td></td>
+          <td class="total-num" data-total="amount"></td>
+          <td class="total-num" data-total="tax"></td>
+          <td class="total-num" data-total="total"></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <div class="left">
+      <button class="btn btn-primary" id="exportBtn" disabled>📥 导出 Excel</button>
+      <button class="btn btn-secondary" id="clearBtn" disabled>🗑 清空</button>
+    </div>
+    <div class="right">支持批量上传 · 双击单元格可编辑</div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="secure">🔒 所有文件仅在浏览器本地处理，不会上传到任何服务器</div>
+  <div>打开即用 · 无需注册 · 离线可用</div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">正在解析...</div>
+</div>
+
+<!-- Upgrade Modal -->
+<div class="modal-overlay" id="upgradeModal">
+  <div class="modal">
+    <div class="icon">🔒</div>
+    <h2>免费额度已用尽</h2>
+    <p>
+      免费版可提取 <strong>3 张</strong> 发票。<br>
+      购买完整版可 <strong>无限使用</strong>，仅需 <strong>19.9 元</strong>。<br>
+      一次购买，长期使用，无后续费用。
+    </p>
+    <button class="btn-upgrade-now" id="goUpgrade">⬆ 前往闲鱼购买完整版</button>
+    <button class="btn-close" id="closeModal">稍后再说</button>
+  </div>
+</div>
+
+<!-- Status Toast -->
+<div class="status" id="status"></div>
+
+<!-- App Script -->
+<script src="app.js"></script>
+</body>
+</html>

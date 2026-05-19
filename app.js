@@ -253,16 +253,67 @@ async function parseOFD(file) {
   const contentPaths = Object.keys(zip.files).filter(name => name.endsWith('Content.xml'));
   if (contentPaths.length === 0) throw new Error('OFD 文件中未找到内容数据');
 
-  let fullText = '';
+  function getAttr(el, localName) {
+    for (var a = 0; a < el.attributes.length; a++) {
+      var attr = el.attributes[a];
+      if (attr.localName === localName || attr.name.endsWith(':' + localName) || attr.name === localName) return attr.value;
+    }
+    return '';
+  }
+
+  function parseBoundary(str) {
+    var parts = (str || '').split(/\s+/);
+    if (parts.length >= 2) return { x: parseFloat(parts[0]) || 0, y: parseFloat(parts[1]) || 0 };
+    return { x: 0, y: 0 };
+  }
+
+  // 确定页面高度（用于坐标翻转）
+  var pageH = 297; // 默认 A4
+  var pageXmlPath = contentPaths.find(p => p.includes('/Pages/'));
+  if (pageXmlPath) {
+    var pageXmlStr = await zip.files[pageXmlPath].async('text');
+    var pageDoc = new DOMParser().parseFromString(pageXmlStr, 'text/xml');
+    var boxes = pageDoc.getElementsByTagNameNS ? pageDoc.getElementsByTagNameNS('*', 'PhysicalBox') : pageDoc.querySelectorAll('PhysicalBox');
+    if (boxes.length > 0) {
+      var parts = (boxes[0].textContent || '').split(/\s+/);
+      if (parts.length >= 4) pageH = parseFloat(parts[3]) || 297;
+    }
+  }
+
+  var allItems = [];
   for (const path of contentPaths) {
     const xmlStr = await zip.files[path].async('text');
     const xml = new DOMParser().parseFromString(xmlStr, 'text/xml');
-    var nodes = xml.getElementsByTagNameNS ? xml.getElementsByTagNameNS('*', 'TextCode') : xml.querySelectorAll('TextCode');
-    for (var i = 0; i < nodes.length; i++) { fullText += nodes[i].textContent + '\n'; }
+    var textObjects = xml.getElementsByTagNameNS ? xml.getElementsByTagNameNS('*', 'TextObject') : xml.querySelectorAll('TextObject');
+    for (var ti = 0; ti < textObjects.length; ti++) {
+      var obj = textObjects[ti];
+      var boundary = parseBoundary(getAttr(obj, 'Boundary'));
+      var textCodes = obj.getElementsByTagNameNS ? obj.getElementsByTagNameNS('*', 'TextCode') : obj.querySelectorAll('TextCode');
+      for (var ci = 0; ci < textCodes.length; ci++) {
+        var tc = textCodes[ci];
+        var xOff = parseFloat(getAttr(tc, 'X')) || 0;
+        var yOff = parseFloat(getAttr(tc, 'Y')) || 0;
+        var text = (tc.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text) {
+          allItems.push({
+            x: Math.round(boundary.x + xOff),
+            y: Math.round(boundary.y + yOff),
+            text: text
+          });
+        }
+      }
+    }
   }
+
+  // OFD 坐标 Y 从顶部开始 → 翻转
+  for (var i = 0; i < allItems.length; i++) {
+    allItems[i].y = Math.round(pageH - allItems[i].y);
+  }
+  var lines = groupIntoLines(allItems);
+  var fullText = allItems.map(i => i.text).join(' ');
   const cleaned = normalizeText(fullText);
   if (!cleaned) throw new Error('OFD 文件中未提取到文字内容');
-  return { text: cleaned, lines: [] };
+  return { text: cleaned, lines: lines };
 }
 
 // ============================================================
@@ -335,9 +386,22 @@ function extractPositionBased(lines) {
     }
 
     // 检测表格区域
-    if (/项目名称/.test(lineStr) || /规格型号/.test(lineStr)) {
+    if (/项目名称/.test(lineStr)) {
       inTable = true;
-      continue;
+      // OFD 兼容：表头和数据在同一行时，不 continue（交给下方商品提取处理）
+      if (!/项目名称/.test(lineStr) || /\d+\.\d{2}/.test(lineStr)) {
+        var _hasVal = false;
+        for (var _vi = 0; _vi < items.length; _vi++) {
+          if (/[\d]/.test(items[_vi].text) && !/项目名称|规格型号|单价|金额|税率|税额/.test(items[_vi].text)) {
+            _hasVal = true; break;
+          }
+        }
+        if (_hasVal) { /* fall through to data extraction */ }
+        else continue;
+      } else continue;
+    }
+    if (/规格型号/.test(lineStr) && !inTable) {
+      inTable = true; continue;
     }
     if (inTable && /合\s*计/.test(lineStr) && !/小\s*计/.test(lineStr)) {
       inTable = false;
@@ -355,23 +419,37 @@ function extractPositionBased(lines) {
 
     // 提取表格内的商品行（基于 X 坐标定位列）
     if (inTable) {
-      // 判断是否为商品数据行：至少 4 个 item，且包含数字类数据
       var numCount = 0;
       for (var _i = 0; _i < items.length; _i++) { if (/[\d]/.test(items[_i].text)) numCount++; }
       if (numCount >= 3) {
         var nameParts = [], qty = '';
+
+        // OFD 兼容：表头和数据在同一行，取"项目名称"之前的内容为商品名称
+        var headerIdx = -1;
         for (var _i = 0; _i < items.length; _i++) {
-          var _it = items[_i];
-          var _x = _it.x, _t = _it.text;
-          // 商品名称：X < 200 且不是纯数字/标点
-          if (_x < 200 && !/^[\d,.%¥\+\-]+$/.test(_t)) {
-            nameParts.push(_t);
+          if (/项目名称/.test(items[_i].text)) { headerIdx = _i; break; }
+        }
+
+        if (headerIdx >= 0) {
+          // OFD 模式：商品名在表头之前，数量紧跟"数量"标签
+          for (var _i = 0; _i < headerIdx; _i++) {
+            if (!/^[\d,.%¥\+\-]+$/.test(items[_i].text)) nameParts.push(items[_i].text);
           }
-          // 数量：X 在 250-350 之间且为纯数字（1-999）
-          if (_x >= 250 && _x <= 350 && /^\d{1,3}$/.test(_t)) {
-            qty = _t;
+          for (var _i = 0; _i < items.length - 1; _i++) {
+            if (/数\s*量/.test(items[_i].text) && /^\d{1,3}$/.test(items[_i + 1].text)) {
+              qty = items[_i + 1].text; break;
+            }
+          }
+        } else {
+          // PDF 模式：基于 X 坐标定位列
+          for (var _i = 0; _i < items.length; _i++) {
+            var _it = items[_i];
+            var _x = _it.x, _t = _it.text;
+            if (_x < 200 && !/^[\d,.%¥\+\-]+$/.test(_t)) nameParts.push(_t);
+            if (_x >= 250 && _x <= 350 && /^\d{1,3}$/.test(_t)) qty = _t;
           }
         }
+
         var name = nameParts.join('').replace(/\*+/g, ' ').trim();
         if (name && qty && name.length > 1) {
           itemRows.push(name + '×' + qty);

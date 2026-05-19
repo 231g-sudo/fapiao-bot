@@ -257,7 +257,8 @@ async function parseOFD(file) {
   for (const path of contentPaths) {
     const xmlStr = await zip.files[path].async('text');
     const xml = new DOMParser().parseFromString(xmlStr, 'text/xml');
-    xml.querySelectorAll('TextCode').forEach(el => { fullText += el.textContent + '\n'; });
+    var nodes = xml.getElementsByTagNameNS ? xml.getElementsByTagNameNS('*', 'TextCode') : xml.querySelectorAll('TextCode');
+    for (var i = 0; i < nodes.length; i++) { fullText += nodes[i].textContent + '\n'; }
   }
   const cleaned = normalizeText(fullText);
   if (!cleaned) throw new Error('OFD 文件中未提取到文字内容');

@@ -269,7 +269,7 @@ function extractPositionBased(lines) {
       const nxt = items[i + 1].text;
       if (!nxt.trim()) continue;
 
-      if (/^名称[：:]/.test(cur) || /名称$/.test(cur) || cur === '名称：') {
+      if (/^名称[：:]/.test(cur) || cur === '名称：' || cur === '名称:') {
         nameSeen++;
         if (nameSeen === 1) fields.buyerName = nxt.trim();
         else if (nameSeen === 2 && !fields.sellerName) fields.sellerName = nxt.trim();

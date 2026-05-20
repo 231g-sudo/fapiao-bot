@@ -595,10 +595,8 @@ function renderTable() {
           } else if (m.key === 'qty') {
             var itemQty = typeof ir === 'string' ? (parseInt(ir.split('×')[1]) || '') : String(ir.qty);
             html += `<td data-field="qty" data-index="${idx}" class="num-cell">${itemQty}</td>`;
-          } else if ((m.key === 'amount' || m.key === 'tax') && ir && ir[m.key]) {
+          } else if ((m.key === 'amount' || m.key === 'tax' || m.key === 'total') && ir && ir[m.key] !== undefined && ir[m.key] !== '') {
             html += `<td data-field="${m.key}" data-index="${idx}" class="num-cell">${ir[m.key]}</td>`;
-          } else if (m.key === 'total' && ir && ir.total) {
-            html += `<td data-field="total" data-index="${idx}" class="num-cell">${ir.total}</td>`;
           } else {
             const val = inv[m.key] || '';
             const isNum = NUMERIC_FIELDS.has(m.key);
@@ -679,8 +677,7 @@ function exportExcel() {
         data.push(FIELD_META.map(function(m) {
           if (m.key === 'items') return ir.name;
           if (m.key === 'qty') return ir.qty;
-          if ((m.key === 'amount' || m.key === 'tax') && ir[m.key]) { var nv = parseFloat(ir[m.key]); return isNaN(nv) ? ir[m.key] : nv; }
-          if (m.key === 'total' && ir.total) { var nv = parseFloat(ir.total); return isNaN(nv) ? ir.total : nv; }
+          if ((m.key === 'amount' || m.key === 'tax' || m.key === 'total') && ir && ir[m.key] !== undefined && ir[m.key] !== '') { var nv = parseFloat(ir[m.key]); return isNaN(nv) ? ir[m.key] : nv; }
           const val = inv[m.key] || '';
           if (NUMERIC_FIELDS.has(m.key) && val) { var n = parseFloat(val); return isNaN(n) ? val : n; }
           return val;

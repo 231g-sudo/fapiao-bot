@@ -488,15 +488,22 @@ function extractPositionBased(lines) {
   if (itemRows.length > 0) {
     fields._itemRows = itemRows.slice();
     var merged = {};
-    var totalQty = 0;
+    var totalQty = 0, totalAmt = 0, totalTax = 0, totalTotal = 0;
     for (var r = 0; r < itemRows.length; r++) {
       var ir = itemRows[r];
       var n = ir.name;
       var q = ir.qty;
       totalQty += q;
+      if (ir.amount) totalAmt += parseFloat(ir.amount) || 0;
+      if (ir.tax) totalTax += parseFloat(ir.tax) || 0;
+      if (ir.total) totalTotal += parseFloat(ir.total) || 0;
       if (merged[n]) merged[n] += q;
       else merged[n] = q;
     }
+    // 优先用各行汇总（比合计行解析更可靠，尤其是多页发票）
+    if (totalAmt > 0) fields.amount = totalAmt.toFixed(2);
+    if (totalTax > 0) fields.tax = totalTax.toFixed(2);
+    if (!fields.total && totalAmt + totalTax > 0) fields.total = (totalAmt + totalTax).toFixed(2);
     var summary = [];
     for (var n in merged) {
       summary.push(n + '×' + merged[n]);
@@ -595,8 +602,9 @@ function renderTable() {
           } else if (m.key === 'qty') {
             var itemQty = typeof ir === 'string' ? (parseInt(ir.split('×')[1]) || '') : String(ir.qty);
             html += `<td data-field="qty" data-index="${idx}" class="num-cell">${itemQty}</td>`;
-          } else if ((m.key === 'amount' || m.key === 'tax' || m.key === 'total') && ir && ir[m.key] !== undefined && ir[m.key] !== '') {
-            html += `<td data-field="${m.key}" data-index="${idx}" class="num-cell">${ir[m.key]}</td>`;
+          } else if (m.key === 'amount' || m.key === 'tax' || m.key === 'total') {
+            var iv = (ir && ir[m.key] !== undefined && ir[m.key] !== '') ? ir[m.key] : '';
+            html += `<td data-field="${m.key}" data-index="${idx}" class="num-cell">${iv}</td>`;
           } else {
             const val = inv[m.key] || '';
             const isNum = NUMERIC_FIELDS.has(m.key);
@@ -677,7 +685,7 @@ function exportExcel() {
         data.push(FIELD_META.map(function(m) {
           if (m.key === 'items') return ir.name;
           if (m.key === 'qty') return ir.qty;
-          if ((m.key === 'amount' || m.key === 'tax' || m.key === 'total') && ir && ir[m.key] !== undefined && ir[m.key] !== '') { var nv = parseFloat(ir[m.key]); return isNaN(nv) ? ir[m.key] : nv; }
+          if (m.key === 'amount' || m.key === 'tax' || m.key === 'total') { var nv = parseFloat(ir[m.key]); return (!isNaN(nv)) ? nv : (ir[m.key] || ''); }
           const val = inv[m.key] || '';
           if (NUMERIC_FIELDS.has(m.key) && val) { var n = parseFloat(val); return isNaN(n) ? val : n; }
           return val;

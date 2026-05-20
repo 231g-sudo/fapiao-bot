@@ -44,7 +44,7 @@ python3 -m http.server 8080
 ```
 ├── index.html      # 主页面（免费 + 激活）
 ├── pro.html        # 完整版入口（保持兼容）
-├── admin.html      # 激活码生成器（密码: fapiao888）
+├── admin.html      # 激活码生成器
 ├── app.js          # 核心引擎（解析 + 提取 + 表格 + 导出）
 ├── gen_codes.py    # 激活码批量生成 CLI
 ├── AGENTS.md       # AI 辅助开发指南

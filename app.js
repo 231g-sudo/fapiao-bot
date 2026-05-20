@@ -423,7 +423,7 @@ function extractPositionBased(lines) {
       var numCount = 0;
       for (var _i = 0; _i < items.length; _i++) { if (/[\d]/.test(items[_i].text)) numCount++; }
       if (numCount >= 3) {
-        var nameParts = [], qty = '';
+        var nameParts = [], qty = '', itemAmount = '', itemTax = '';
 
         // OFD 兼容：表头和数据在同一行，取"项目名称"之前的内容为商品名称
         var headerIdx = -1;
@@ -432,14 +432,16 @@ function extractPositionBased(lines) {
         }
 
         if (headerIdx >= 0) {
-          // OFD 模式：商品名在表头之前，数量紧跟"数量"标签
+          // OFD 模式：商品名在表头之前，数量/金额/税额跟在标签后面
           for (var _i = 0; _i < headerIdx; _i++) {
             if (!/^[\d,.%¥\+\-]+$/.test(items[_i].text)) nameParts.push(items[_i].text);
           }
           for (var _i = 0; _i < items.length - 1; _i++) {
-            if (/数\s*量/.test(items[_i].text) && /^\d{1,3}$/.test(items[_i + 1].text)) {
-              qty = items[_i + 1].text; break;
-            }
+            var _c = items[_i].text;
+            var _n = items[_i + 1].text;
+            if (/数\s*量/.test(_c) && /^\d{1,3}$/.test(_n)) { qty = _n; }
+            if (/金\s*额/.test(_c) && /^[\d,]+\.\d{2}$/.test(_n)) { itemAmount = _n.replace(/,/g, ''); }
+            if (/税\s*额/.test(_c) && /^[\d,]+\.\d{2}$/.test(_n)) { itemTax = _n.replace(/,/g, ''); }
           }
         } else {
           // PDF 模式：基于 X 坐标定位列
@@ -448,12 +450,15 @@ function extractPositionBased(lines) {
             var _x = _it.x, _t = _it.text;
             if (_x < 200 && !/^[\d,.%¥\+\-]+$/.test(_t)) nameParts.push(_t);
             if (_x >= 250 && _x <= 350 && /^\d{1,3}$/.test(_t)) qty = _t;
+            // 金额列 X 370-450，税额列 X 530-580
+            if (_x >= 370 && _x <= 450 && /^\d[\d,]*\.\d{2}$/.test(_t)) itemAmount = _t.replace(/,/g, '');
+            if (_x >= 530 && _x <= 580 && /^\d[\d,]*\.\d{2}$/.test(_t)) itemTax = _t.replace(/,/g, '');
           }
         }
 
         var name = nameParts.join('').replace(/\*+/g, ' ').trim();
         if (name && qty && name.length > 1) {
-          itemRows.push({ name: name, qty: parseInt(qty) || 1 });
+          itemRows.push({ name: name, qty: parseInt(qty) || 1, amount: itemAmount, tax: itemTax });
         }
       }
     }
@@ -585,6 +590,8 @@ function renderTable() {
           } else if (m.key === 'qty') {
             var itemQty = typeof ir === 'string' ? (parseInt(ir.split('×')[1]) || '') : String(ir.qty);
             html += `<td data-field="qty" data-index="${idx}" class="num-cell">${itemQty}</td>`;
+          } else if ((m.key === 'amount' || m.key === 'tax') && ir && ir[m.key]) {
+            html += `<td data-field="${m.key}" data-index="${idx}" class="num-cell">${ir[m.key]}</td>`;
           } else {
             const val = inv[m.key] || '';
             const isNum = NUMERIC_FIELDS.has(m.key);
@@ -664,6 +671,7 @@ function exportExcel() {
         data.push(FIELD_META.map(function(m) {
           if (m.key === 'items') return ir.name;
           if (m.key === 'qty') return ir.qty;
+          if ((m.key === 'amount' || m.key === 'tax') && ir[m.key]) { var nv = parseFloat(ir[m.key]); return isNaN(nv) ? ir[m.key] : nv; }
           const val = inv[m.key] || '';
           if (NUMERIC_FIELDS.has(m.key) && val) { var n = parseFloat(val); return isNaN(n) ? val : n; }
           return val;

@@ -458,7 +458,12 @@ function extractPositionBased(lines) {
 
         var name = nameParts.join('').replace(/\*+/g, ' ').trim();
         if (name && qty && name.length > 1) {
-          itemRows.push({ name: name, qty: parseInt(qty) || 1, amount: itemAmount, tax: itemTax });
+          var itemTotal = '';
+          if (itemAmount && itemTax) {
+            var ta = parseFloat(itemAmount), tt = parseFloat(itemTax);
+            if (!isNaN(ta) && !isNaN(tt)) itemTotal = (ta + tt).toFixed(2);
+          }
+          itemRows.push({ name: name, qty: parseInt(qty) || 1, amount: itemAmount, tax: itemTax, total: itemTotal });
         }
       }
     }
@@ -575,10 +580,10 @@ function renderTable() {
     const hasMissing = inv.missingCount > 0;
     var rawRows = inv._itemRows;
     if (rawRows && rawRows.length > 0 && typeof rawRows[0] === 'string') {
-      rawRows = rawRows.map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1 }; });
+      rawRows = rawRows.map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1, amount: '', tax: '', total: '' }; });
     }
     const itemRows = (state.expandItems && rawRows && rawRows.length > 0) ? rawRows :
-      (state.expandItems && inv.items && inv.items.includes('；')) ? inv.items.split('；').map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1 }; }) : null;
+      (state.expandItems && inv.items && inv.items.includes('；')) ? inv.items.split('；').map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1, amount: '', tax: '', total: '' }; }) : null;
     if (itemRows) {
       itemRows.forEach((ir, ri) => {
         html += `<tr data-index="${idx}" class="${hasMissing ? 'has-missing' : ''} ${ri > 0 ? 'item-subrow' : ''}">`;
@@ -592,6 +597,8 @@ function renderTable() {
             html += `<td data-field="qty" data-index="${idx}" class="num-cell">${itemQty}</td>`;
           } else if ((m.key === 'amount' || m.key === 'tax') && ir && ir[m.key]) {
             html += `<td data-field="${m.key}" data-index="${idx}" class="num-cell">${ir[m.key]}</td>`;
+          } else if (m.key === 'total' && ir && ir.total) {
+            html += `<td data-field="total" data-index="${idx}" class="num-cell">${ir.total}</td>`;
           } else {
             const val = inv[m.key] || '';
             const isNum = NUMERIC_FIELDS.has(m.key);
@@ -641,13 +648,14 @@ function onCellEdit(e) {
 }
 
 function updateTotals() {
-  const sums = { amount: 0, tax: 0, total: 0 };
+  const sums = { amount: 0, tax: 0, total: 0, qty: 0 };
   state.invoices.forEach(inv => {
-    NUMERIC_FIELDS.forEach(f => { const v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] += v; });
+    NUMERIC_FIELDS.forEach(f => { const v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] = (sums[f] || 0) + v; });
   });
   els.totalRow.querySelectorAll('[data-total]').forEach(el => {
     const field = el.dataset.total;
-    el.textContent = sums[field] ? sums[field].toFixed(2) : '0.00';
+    const v = sums[field];
+    el.textContent = (v && !isNaN(v)) ? v.toFixed(2) : '0.00';
   });
 }
 
@@ -658,20 +666,21 @@ function exportExcel() {
   if (state.invoices.length === 0) { showStatus('没有数据可导出', 'warn'); return; }
   const headers = FIELD_META.map(m => m.label);
   const data = [];
-  const sums = { amount: 0, tax: 0, total: 0 };
+  const sums = { amount: 0, tax: 0, total: 0, qty: 0 };
   state.invoices.forEach(inv => {
     var rawRows = inv._itemRows;
     if (rawRows && rawRows.length > 0 && typeof rawRows[0] === 'string') {
-      rawRows = rawRows.map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1 }; });
+      rawRows = rawRows.map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1, amount: '', tax: '', total: '' }; });
     }
     const itemRows = (rawRows && rawRows.length > 0) ? rawRows :
-      (inv.items && inv.items.includes('；')) ? inv.items.split('；').map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1 }; }) : null;
+      (inv.items && inv.items.includes('；')) ? inv.items.split('；').map(function(s) { var p = s.split('×'); return { name: p[0], qty: parseInt(p[1]) || 1, amount: '', tax: '', total: '' }; }) : null;
     if (itemRows) {
       itemRows.forEach(function(ir) {
         data.push(FIELD_META.map(function(m) {
           if (m.key === 'items') return ir.name;
           if (m.key === 'qty') return ir.qty;
           if ((m.key === 'amount' || m.key === 'tax') && ir[m.key]) { var nv = parseFloat(ir[m.key]); return isNaN(nv) ? ir[m.key] : nv; }
+          if (m.key === 'total' && ir.total) { var nv = parseFloat(ir.total); return isNaN(nv) ? ir.total : nv; }
           const val = inv[m.key] || '';
           if (NUMERIC_FIELDS.has(m.key) && val) { var n = parseFloat(val); return isNaN(n) ? val : n; }
           return val;
@@ -684,7 +693,7 @@ function exportExcel() {
         return val;
       }));
     }
-    NUMERIC_FIELDS.forEach(function(f) { var v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] += v; });
+    NUMERIC_FIELDS.forEach(function(f) { var v = parseFloat(inv[f]); if (!isNaN(v)) sums[f] = (sums[f] || 0) + v; });
   });
   const totalRow = FIELD_META.map(m => {
     if (m.key === 'invoiceNo') return '合计';

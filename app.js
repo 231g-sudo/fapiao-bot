@@ -405,11 +405,11 @@ function extractPositionBased(lines) {
       inTable = true; continue;
     }
     if (inTable && /合\s*计/.test(lineStr) && !/小\s*计/.test(lineStr)) {
-      inTable = false;
-      var amounts = lineStr.match(/¥?\s*([\d,]+\.\d{2})/g);
-      if (amounts && amounts.length >= 2) {
-        fields.amount = amounts[0].replace(/,/g, '').trim();
-        fields.tax = amounts[1].replace(/,/g, '').trim();
+      // 不重置 inTable，让后续页面继续提取商品行
+      var amounts = [...lineStr.matchAll(/¥?\s*([\d,]+\.\d{2})/g)];
+      if (amounts.length >= 2) {
+        fields.amount = amounts[0][1].replace(/,/g, '');
+        fields.tax = amounts[1][1].replace(/,/g, '');
       }
       continue;
     }
@@ -500,9 +500,9 @@ function extractPositionBased(lines) {
       if (merged[n]) merged[n] += q;
       else merged[n] = q;
     }
-    // 优先用各行汇总（比合计行解析更可靠，尤其是多页发票）
-    if (totalAmt > 0) fields.amount = totalAmt.toFixed(2);
-    if (totalTax > 0) fields.tax = totalTax.toFixed(2);
+    // 仅当合计行未提取到时，用各行汇总作为降级
+    if (!fields.amount && totalAmt > 0) fields.amount = totalAmt.toFixed(2);
+    if (!fields.tax && totalTax > 0) fields.tax = totalTax.toFixed(2);
     if (!fields.total && totalAmt + totalTax > 0) fields.total = (totalAmt + totalTax).toFixed(2);
     var summary = [];
     for (var n in merged) {
